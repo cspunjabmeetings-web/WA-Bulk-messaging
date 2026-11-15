@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Login · WA Bulk Portal</title>
+  <link rel="stylesheet" href="/static/vendor/app.css" />
+</head>
+<body class="min-h-screen grid place-items-center bg-slate-50 font-sans">
+  <form method="post" action="/login" class="bg-white border rounded-2xl p-8 w-full max-w-sm shadow-sm">
+    <div class="w-11 h-11 rounded-xl bg-emerald-600 grid place-items-center text-white font-bold text-lg mb-4">W</div>
+    <h1 class="text-xl font-bold mb-1">WA Bulk Portal</h1>
+    <p class="text-sm text-slate-500 mb-6">Enter the portal password to continue.</p>
+    <p id="err" class="hidden text-sm text-rose-600 mb-3">Wrong password, try again.</p>
+    <input type="password" name="password" autofocus required placeholder="Password"
+      class="w-full border rounded-lg px-3 py-2 mb-4 outline-none focus:border-emerald-500" />
+    <button class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-lg py-2">Sign in</button>
+  </form>
+  <script>if (location.search.includes('error')) document.getElementById('err').classList.remove('hidden');</script>
+</body>
+</html>

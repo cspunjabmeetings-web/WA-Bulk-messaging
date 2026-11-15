@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WA Bulk Portal</title>
+  <link rel="stylesheet" href="/static/vendor/app.css" />
+  <script defer src="/static/vendor/alpine.min.js"></script>
+</head>
+<body class="bg-slate-50 font-sans text-slate-800" x-data="portal()" x-init="init()">
+
+<!-- Top bar -->
+<header class="bg-white border-b border-slate-200 sticky top-0 z-20">
+  <div class="max-w-7xl mx-auto px-5 h-16 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <div class="w-9 h-9 rounded-xl bg-brand-600 grid place-items-center text-white font-bold">W</div>
+      <div>
+        <div class="font-bold leading-tight">WA Bulk Portal</div>
+        <div class="text-xs text-slate-500">Powered by WasenderAPI · v1.1</div>
+      </div>
+    </div>
+    <nav class="hidden md:flex gap-1 bg-slate-100 p-1 rounded-xl">
+      <template x-for="t in tabs" :key="t.id">
+        <button @click="go(t.id)" class="px-4 py-1.5 rounded-lg text-sm font-semibold"
+          :class="tab===t.id ? 'bg-white shadow text-brand-700' : 'text-slate-600 hover:text-slate-900'" x-text="t.label"></button>
+      </template>
+    </nav>
+    <div class="flex items-center gap-2">
+      <span x-show="settings.mock_mode" class="pill bg-amber-100 text-amber-800">Test mode</span>
+      <button @click="checkConnection()" class="flex items-center gap-2 text-sm px-3 py-1.5 rounded-lg border"
+        :class="conn.connected ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-rose-200 bg-rose-50 text-rose-700'">
+        <span class="w-2 h-2 rounded-full" :class="conn.connected ? 'bg-emerald-500' : 'bg-rose-500'"></span>
+        <span x-text="conn.connected ? 'WhatsApp connected' : (conn.loading ? 'Checking…' : 'Not connected')"></span>
+      </button>
+    </div>
+  </div>
+  <nav class="md:hidden flex gap-1 px-4 pb-3">
+    <template x-for="t in tabs" :key="t.id">
+      <button @click="go(t.id)" class="flex-1 py-1.5 rounded-lg text-sm font-semibold"
+        :class="tab===t.id ? 'bg-brand-600 text-white' : 'bg-slate-100'" x-text="t.label"></button>
+    </template>
+  </nav>
+</header>
+
+<!-- Toasts -->
+<div class="fixed bottom-5 right-5 z-50 space-y-2 w-80">
+  <template x-for="t in toasts" :key="t.id">
+    <div class="rounded-xl px-4 py-3 shadow-lg text-sm text-white" :class="t.type==='error'?'bg-rose-600':'bg-slate-900'" x-text="t.msg"></div>
+  </template>
+</div>
+
+<main class="max-w-7xl mx-auto px-5 py-8">
+
+  <!-- ================= NEW CAMPAIGN ================= -->
+  <section x-show="tab==='new'" x-cloak>
+    <div x-show="!settings.api_key_set && !settings.mock_mode" class="mb-6 card border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+      ⚠️ WasenderAPI API key is not set yet. <button class="underline font-semibold" @click="go('settings')">Open Settings</button> and paste your session API key first.
+    </div>
+
+    <div class="grid lg:grid-cols-5 gap-6">
+      <div class="lg:col-span-3 space-y-6">
+        <!-- Step 1 -->
+        <div class="card p-6">
+          <div class="flex items-center justify-between mb-4">
+            <h2 class="font-bold text-lg"><span class="text-brand-600">1.</span> Upload contacts</h2>
+            <a href="/api/sample-contacts.csv" class="text-sm text-brand-700 font-semibold hover:underline">Download sample CSV</a>
+          </div>
+          <label @dragover.prevent="drag=true" @dragleave.prevent="drag=false" @drop.prevent="drag=false; pickContacts($event.dataTransfer.files[0])"
+            class="block border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition"
+            :class="drag ? 'border-brand-500 bg-brand-50' : 'border-slate-300 hover:border-brand-500'">
+            <input type="file" class="hidden" accept=".csv,.xlsx,.xls,.txt" @change="pickContacts($event.target.files[0]); $event.target.value=''" />
+            <div class="text-3xl mb-2">📄</div>
+            <div class="font-semibold" x-text="preview ? preview.filename : 'Drop CSV / Excel file here or click to browse'"></div>
+            <div class="text-xs text-slate-500 mt-1">.csv, .xlsx, .xls · numbers like 03001234567 or +923001234567 are both fine</div>
+          </label>
+          <div x-show="uploading" class="mt-4 text-sm text-slate-500">Reading file…</div>
+
+          <template x-if="preview">
+            <div class="mt-5">
+              <div class="grid grid-cols-2 sm:grid-cols-5 gap-3 text-center">
+                <div class="rounded-xl bg-slate-50 p-3"><div class="text-xl font-bold" x-text="preview.total_rows"></div><div class="text-xs text-slate-500">Rows</div></div>
+                <div class="rounded-xl bg-emerald-50 p-3"><div class="text-xl font-bold text-emerald-700" x-text="preview.valid_count"></div><div class="text-xs text-slate-500">Valid numbers</div></div>
+                <div class="rounded-xl bg-rose-50 p-3"><div class="text-xl font-bold text-rose-700" x-text="preview.invalid_count"></div><div class="text-xs text-slate-500">Invalid</div></div>
+                <div class="rounded-xl bg-amber-50 p-3"><div class="text-xl font-bold text-amber-700" x-text="preview.duplicate_count"></div><div class="text-xs text-slate-500">Duplicates removed</div></div>
+                <div class="rounded-xl bg-slate-800 p-3"><div class="text-xl font-bold text-white" x-text="preview.blocked_count"></div><div class="text-xs text-slate-300">In blocklist (skipped)</div></div>
+              </div>
+              <div class="mt-4 flex items-end gap-3">
+                <div class="flex-1">
+                  <span class="label">Phone number column</span>
+                  <select class="input" x-model="phoneColumn" @change="reparse()">
+                    <template x-for="c in preview.columns" :key="c"><option :value="c" x-text="c" :selected="c===phoneColumn"></option></template>
+                  </select>
+                </div>
+              </div>
+              <div class="mt-4 overflow-auto max-h-48 rounded-lg border">
+                <table class="w-full text-sm">
+                  <thead class="bg-slate-50 text-left text-xs uppercase text-slate-500"><tr><th class="p-2">Number (cleaned)</th><th class="p-2">Original</th><th class="p-2">Name</th></tr></thead>
+                  <tbody>
+                    <template x-for="v in preview.sample_valid" :key="v.phone">
+                      <tr class="border-t"><td class="p-2 font-mono" x-text="v.phone"></td><td class="p-2 text-slate-500" x-text="v.raw"></td><td class="p-2" x-text="v.vars.name"></td></tr>
+                    </template>
+                  </tbody>
+                </table>
+              </div>
+              <details x-show="preview.blocked_count" class="mt-3 text-sm">
+                <summary class="cursor-pointer text-slate-800 font-semibold">Show blocklisted numbers (won't be sent)</summary>
+                <ul class="mt-2 space-y-1 text-slate-600 font-mono">
+                  <template x-for="b in preview.sample_blocked" :key="b.phone"><li x-text="b.phone"></li></template>
+                </ul>
+              </details>
+              <details x-show="preview.invalid_count" class="mt-3 text-sm">
+                <summary class="cursor-pointer text-rose-700 font-semibold">Show invalid rows</summary>
+                <ul class="mt-2 space-y-1 text-slate-600">
+                  <template x-for="i in preview.sample_invalid" :key="i.row"><li>Row <b x-text="i.row"></b>: "<span x-text="i.raw"></span>" — <span x-text="i.reason"></span></li></template>
+                </ul>
+              </details>
+            </div>
+          </template>
+        </div>
+
+        <!-- Step 2 -->
+        <div class="card p-6">
+          <h2 class="font-bold text-lg mb-4"><span class="text-brand-600">2.</span> Write message</h2>
+          <span class="label">Campaign name</span>
+          <input class="input mb-4" x-model="form.name" placeholder="e.g. November promotion" />
+          <div class="flex items-center justify-between">
+            <span class="label">Message</span>
+            <span class="text-xs" :class="form.message.length>4096?'text-rose-600':'text-slate-400'" x-text="form.message.length + ' / 4096'"></span>
+          </div>
+          <textarea x-ref="msg" class="input h-40 resize-y" x-model="form.message" placeholder="Assalam o Alaikum {name}! …"></textarea>
+          <div class="mt-2 flex flex-wrap gap-2 items-center text-xs">
+            <span class="text-slate-500">Insert:</span>
+            <template x-for="col in placeholderCols()" :key="col">
+              <button type="button" class="pill bg-slate-100 hover:bg-brand-100 normal-case" @click="insertVar(col)" x-text="'{'+col+'}'"></button>
+            </template>
+            <span class="text-slate-400">· WhatsApp formatting: *bold* _italic_ ~strike~</span>
+          </div>
+
+          <div class="mt-5">
+            <span class="label">Image (optional · JPG/PNG · max 5 MB)</span>
+            <div class="flex items-center gap-3">
+              <label class="btn btn-ghost cursor-pointer">🖼️ Choose image
+                <input type="file" class="hidden" accept="image/png,image/jpeg" @change="pickImage($event.target.files[0]); $event.target.value=''" />
+              </label>
+              <template x-if="imageUrl">
+                <div class="flex items-center gap-2"><img :src="imageUrl" class="h-12 w-12 rounded-lg object-cover border" />
+                  <button class="text-sm text-rose-600 font-semibold" @click="clearImage()">Remove</button></div>
+              </template>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right: preview + send -->
+      <div class="lg:col-span-2 space-y-6">
+        <div class="card overflow-hidden lg:sticky lg:top-24">
+          <div class="bg-[#075e54] text-white px-4 py-3 text-sm font-semibold">Preview</div>
+          <div class="wa-bg p-4 min-h-[220px]">
+            <div class="bg-[#d9fdd3] rounded-lg rounded-tr-none shadow-sm p-1.5 ml-auto max-w-[85%]" x-show="form.message || imageUrl">
+              <img x-show="imageUrl" :src="imageUrl" class="rounded-md w-full mb-1" />
+              <div class="px-1.5 pb-1 text-[0.9rem] whitespace-pre-wrap break-words" x-html="waFormat(renderPreview())"></div>
+              <div class="text-[10px] text-slate-500 text-right px-1">now ✓✓</div>
+            </div>
+            <div x-show="!form.message && !imageUrl" class="text-center text-sm text-slate-500 pt-16">Your message preview appears here</div>
+          </div>
+          <div class="p-5 space-y-4 border-t">
+            <div class="text-sm text-slate-600" x-show="preview">
+              Will send to <b class="text-slate-900" x-text="preview?.valid_count"></b> numbers ·
+              est. <b x-text="estimate()"></b>
+            </div>
+            <button class="btn btn-primary w-full justify-center py-3" :disabled="!canSend() || creating" @click="createCampaign()">
+              <span x-text="creating ? 'Starting…' : '🚀 Start sending'"></span>
+            </button>
+            <div class="pt-2 border-t">
+              <span class="label">Send a test first (recommended)</span>
+              <div class="flex gap-2">
+                <input class="input" x-model="testPhone" placeholder="03xx xxxxxxx" />
+                <button class="btn btn-ghost whitespace-nowrap" :disabled="!testPhone || testing" @click="sendTest()" x-text="testing?'…':'Send test'"></button>
+              </div>
+              <p class="text-xs text-slate-400 mt-1">Test sends text only, with {placeholders} filled from the first row.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= CAMPAIGNS / REPORTS ================= -->
+  <section x-show="tab==='campaigns'" x-cloak>
+    <template x-if="!current">
+      <div>
+        <div class="flex items-center justify-between mb-5">
+          <h2 class="text-xl font-bold">Campaigns & reports</h2>
+          <button class="btn btn-ghost" @click="loadCampaigns()">↻ Refresh</button>
+        </div>
+        <div class="card divide-y">
+          <template x-for="c in campaigns" :key="c.id">
+            <button class="w-full text-left p-5 hover:bg-slate-50 flex items-center gap-5" @click="openCampaign(c.id)">
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2">
+                  <span class="font-semibold truncate" x-text="c.name"></span>
+                  <span class="pill" :class="statusClass(c.status)" x-text="c.status"></span>
+                </div>
+                <div class="text-xs text-slate-500 mt-1"><span x-text="fmtDate(c.created_at)"></span> · <span x-text="c.source_filename"></span></div>
+                <div class="mt-2 h-2 bg-slate-100 rounded-full overflow-hidden"><div class="h-full bg-brand-500" :style="`width:${c.progress}%`"></div></div>
+              </div>
+              <div class="grid grid-cols-3 gap-4 text-center text-sm shrink-0">
+                <div><div class="font-bold text-emerald-700" x-text="c.stats.sent"></div><div class="text-xs text-slate-500">Sent</div></div>
+                <div><div class="font-bold text-rose-700" x-text="c.stats.failed"></div><div class="text-xs text-slate-500">Failed</div></div>
+                <div><div class="font-bold" x-text="c.stats.pending"></div><div class="text-xs text-slate-500">Pending</div></div>
+              </div>
+            </button>
+          </template>
+          <div x-show="!campaigns.length" class="p-10 text-center text-slate-500">No campaigns yet.</div>
+        </div>
+      </div>
+    </template>
+
+    <template x-if="current">
+      <div>
+        <button class="text-sm text-slate-500 hover:text-slate-900 mb-4" @click="closeCampaign()">← All campaigns</button>
+        <div class="flex flex-wrap items-start justify-between gap-4 mb-6">
+          <div>
+            <div class="flex items-center gap-3"><h2 class="text-2xl font-bold" x-text="current.name"></h2>
+              <span class="pill" :class="statusClass(current.status)" x-text="current.status"></span></div>
+            <div class="text-sm text-slate-500 mt-1">Created <span x-text="fmtDate(current.created_at)"></span> · file: <span x-text="current.source_filename"></span></div>
+          </div>
+          <div class="flex flex-wrap gap-2">
+            <button class="btn btn-primary" x-show="['paused','draft','failed'].includes(current.status)" @click="action('start')">▶ Resume</button>
+            <button class="btn btn-ghost" x-show="current.status==='running'" @click="action('pause')">⏸ Pause</button>
+            <button class="btn btn-ghost" x-show="current.stats.failed && current.status!=='running'" @click="action('retry-failed')">↻ Retry failed</button>
+            <a class="btn btn-ghost" :href="`/api/campaigns/${current.id}/report.csv`">⬇ Export report</a>
+            <button class="btn btn-danger" x-show="['running','paused','draft'].includes(current.status)" @click="confirm('Cancel this campaign? Remaining numbers will not be sent.') && action('cancel')">✕ Cancel</button>
+            <button class="btn btn-danger" x-show="!['running'].includes(current.status)" @click="confirm('Delete campaign and its report permanently?') && deleteCampaign()">🗑 Delete</button>
+          </div>
+        </div>
+
+        <div x-show="current.last_error" class="card border-amber-200 bg-amber-50 p-4 mb-6 text-sm text-amber-900" x-text="current.last_error"></div>
+
+        <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+          <div class="card p-5"><div class="text-xs text-slate-500 font-semibold uppercase">Total</div><div class="text-3xl font-bold mt-1" x-text="current.total"></div></div>
+          <div class="card p-5"><div class="text-xs text-slate-500 font-semibold uppercase">Sent ✓</div><div class="text-3xl font-bold mt-1 text-emerald-600" x-text="current.stats.sent"></div></div>
+          <div class="card p-5"><div class="text-xs text-slate-500 font-semibold uppercase">Failed</div><div class="text-3xl font-bold mt-1 text-rose-600" x-text="current.stats.failed"></div></div>
+          <div class="card p-5"><div class="text-xs text-slate-500 font-semibold uppercase">Pending</div><div class="text-3xl font-bold mt-1 text-slate-700" x-text="current.stats.pending"></div></div>
+          <div class="card p-5"><div class="text-xs text-slate-500 font-semibold uppercase">Skipped (blocklist)</div><div class="text-3xl font-bold mt-1 text-slate-500" x-text="current.stats.skipped"></div></div>
+        </div>
+        <div class="card p-5 mb-6">
+          <div class="flex justify-between text-sm mb-2"><span class="font-semibold">Progress</span><span x-text="current.progress + '%'"></span></div>
+          <div class="h-3 bg-slate-100 rounded-full overflow-hidden"><div class="h-full bg-brand-500 transition-all" :style="`width:${current.progress}%`"></div></div>
+        </div>
+
+        <div class="card">
+          <div class="p-4 flex flex-wrap gap-3 items-center border-b">
+            <div class="flex gap-1 bg-slate-100 p-1 rounded-lg text-sm">
+              <template x-for="f in ['', 'sent', 'failed', 'pending', 'skipped']" :key="f">
+                <button class="px-3 py-1 rounded-md font-semibold" :class="rFilter===f?'bg-white shadow':''" @click="rFilter=f; rPage=1; loadRecipients()" x-text="f||'all'"></button>
+              </template>
+            </div>
+            <input class="input max-w-xs" placeholder="Search number…" x-model.debounce.400ms="rSearch" @input="rPage=1; loadRecipients()" />
+            <div class="ml-auto text-sm text-slate-500"><span x-text="recipients.total"></span> rows</div>
+          </div>
+          <div class="overflow-auto">
+            <table class="w-full text-sm">
+              <thead class="bg-slate-50 text-left text-xs uppercase text-slate-500"><tr>
+                <th class="p-3">#</th><th class="p-3">Number</th><th class="p-3">Name</th><th class="p-3">Status</th><th class="p-3">Sent at</th><th class="p-3">Details</th><th class="p-3"></th></tr></thead>
+              <tbody>
+                <template x-for="(r, i) in recipients.items" :key="r.id">
+                  <tr class="border-t">
+                    <td class="p-3 text-slate-400" x-text="(rPage-1)*50 + i + 1"></td>
+                    <td class="p-3 font-mono" x-text="r.phone"></td>
+                    <td class="p-3" x-text="r.name"></td>
+                    <td class="p-3"><span class="pill" :class="statusClass(r.status)" x-text="r.status"></span></td>
+                    <td class="p-3 text-slate-500" x-text="fmtDate(r.sent_at)"></td>
+                    <td class="p-3 text-xs" :class="r.error?'text-rose-600':'text-slate-400'" x-text="r.error || (r.message_id ? 'ID ' + r.message_id : '')"></td>
+                    <td class="p-3 text-right"><button class="text-xs font-semibold text-slate-500 hover:text-rose-600" @click="openBlockDialog(r.phone)" title="Add this number to blocklist">⛔ Block</button></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+          <div class="p-4 flex justify-end gap-2 border-t" x-show="recipients.total > 50">
+            <button class="btn btn-ghost" :disabled="rPage<=1" @click="rPage--; loadRecipients()">Prev</button>
+            <span class="self-center text-sm" x-text="`Page ${rPage} / ${Math.ceil(recipients.total/50)}`"></span>
+            <button class="btn btn-ghost" :disabled="rPage*50>=recipients.total" @click="rPage++; loadRecipients()">Next</button>
+          </div>
+        </div>
+      </div>
+    </template>
+  </section>
+
+  <!-- ================= BLOCKLIST ================= -->
+  <section x-show="tab==='blocklist'" x-cloak>
+    <div class="flex items-center justify-between mb-5">
+      <div>
+        <h2 class="text-xl font-bold">Blocklist <span class="text-slate-400 font-normal" x-text="'(' + (blocked.all_total||0) + ')'"></span></h2>
+        <p class="text-sm text-slate-500">These numbers are removed from every upload and are never sent a message.</p>
+      </div>
+      <a class="btn btn-ghost" href="/api/blocklist/export.csv">⬇ Export</a>
+    </div>
+    <div class="grid lg:grid-cols-3 gap-6">
+      <div class="space-y-6">
+        <div class="card p-6">
+          <h3 class="font-bold mb-4">Add numbers</h3>
+          <span class="label">Numbers (one per line, or comma separated)</span>
+          <textarea class="input h-28 font-mono" x-model="blockForm.numbers" placeholder="03001234567&#10;+923211234567"></textarea>
+          <span class="label mt-3">Reason</span>
+          <select class="input" x-model="blockForm.reason">
+            <template x-for="(label, key) in reasonLabels" :key="key"><option :value="key" x-text="label"></option></template>
+          </select>
+          <span class="label mt-3">Note (optional)</span>
+          <input class="input" x-model="blockForm.note" placeholder="e.g. replied with abuse on 12 Nov" />
+          <button class="btn btn-primary w-full justify-center mt-4" :disabled="!blockForm.numbers.trim()" @click="addBlocked()">⛔ Add to blocklist</button>
+        </div>
+        <div class="card p-6">
+          <h3 class="font-bold mb-1">Import from file</h3>
+          <p class="text-sm text-slate-500 mb-3">CSV/Excel with a phone column. All numbers get the reason selected above.</p>
+          <label class="btn btn-ghost cursor-pointer w-full justify-center">📄 Choose file
+            <input type="file" class="hidden" accept=".csv,.xlsx,.xls,.txt" @change="importBlocked($event.target.files[0]); $event.target.value=''" />
+          </label>
+        </div>
+      </div>
+      <div class="lg:col-span-2 card">
+        <div class="p-4 flex flex-wrap gap-3 items-center border-b">
+          <input class="input max-w-xs" placeholder="Search number or note…" x-model.debounce.400ms="bSearch" @input="bPage=1; loadBlocked()" />
+          <select class="input max-w-[200px]" x-model="bReason" @change="bPage=1; loadBlocked()">
+            <option value="">All reasons</option>
+            <template x-for="(label, key) in reasonLabels" :key="key"><option :value="key" x-text="label"></option></template>
+          </select>
+          <div class="ml-auto text-sm text-slate-500"><span x-text="blocked.total"></span> rows</div>
+        </div>
+        <div class="overflow-auto">
+          <table class="w-full text-sm">
+            <thead class="bg-slate-50 text-left text-xs uppercase text-slate-500"><tr>
+              <th class="p-3">Number</th><th class="p-3">Reason</th><th class="p-3">Note</th><th class="p-3">Added</th><th class="p-3"></th></tr></thead>
+            <tbody>
+              <template x-for="b in blocked.items" :key="b.id">
+                <tr class="border-t">
+                  <td class="p-3 font-mono" x-text="b.phone"></td>
+                  <td class="p-3"><span class="pill normal-case" :class="reasonClass(b.reason)" x-text="reasonLabels[b.reason] || b.reason"></span></td>
+                  <td class="p-3 text-slate-600" x-text="b.note"></td>
+                  <td class="p-3 text-slate-500" x-text="fmtDate(b.created_at)"></td>
+                  <td class="p-3 text-right"><button class="text-xs font-semibold text-slate-500 hover:text-rose-600" @click="confirm('Remove ' + b.phone + ' from blocklist? They can receive messages again.') && removeBlocked(b.id)">Remove</button></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+          <div x-show="!blocked.items.length" class="p-10 text-center text-slate-500">No blocked numbers yet.</div>
+        </div>
+        <div class="p-4 flex justify-end gap-2 border-t" x-show="blocked.total > 50">
+          <button class="btn btn-ghost" :disabled="bPage<=1" @click="bPage--; loadBlocked()">Prev</button>
+          <span class="self-center text-sm" x-text="`Page ${bPage} / ${Math.ceil(blocked.total/50)}`"></span>
+          <button class="btn btn-ghost" :disabled="bPage*50>=blocked.total" @click="bPage++; loadBlocked()">Next</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Quick block dialog (from report) -->
+  <div x-show="blockDialog.open" x-cloak class="fixed inset-0 z-40 bg-black/40 grid place-items-center p-4" @keydown.escape.window="blockDialog.open=false">
+    <div class="card p-6 w-full max-w-sm" @click.outside="blockDialog.open=false">
+      <h3 class="font-bold mb-1">Block number</h3>
+      <p class="font-mono text-sm mb-4" x-text="blockDialog.phone"></p>
+      <span class="label">Reason</span>
+      <select class="input" x-model="blockDialog.reason">
+        <template x-for="(label, key) in reasonLabels" :key="key"><option :value="key" x-text="label"></option></template>
+      </select>
+      <span class="label mt-3">Note (optional)</span>
+      <input class="input" x-model="blockDialog.note" />
+      <div class="mt-5 flex gap-2 justify-end">
+        <button class="btn btn-ghost" @click="blockDialog.open=false">Cancel</button>
+        <button class="btn btn-primary" @click="quickBlock()">⛔ Block</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= SETTINGS ================= -->
+  <section x-show="tab==='settings'" x-cloak>
+    <div class="grid lg:grid-cols-3 gap-6">
+      <div class="lg:col-span-2 space-y-6">
+        <div class="card p-6">
+          <h2 class="font-bold text-lg mb-1">WasenderAPI connection</h2>
+          <p class="text-sm text-slate-500 mb-4">WasenderAPI dashboard → your WhatsApp session → copy the <b>API Key</b> of that session (not the personal access token).</p>
+          <span class="label">Session API key <span class="font-normal text-slate-400" x-show="settings.api_key_set" x-text="'(saved ' + settings.api_key_hint + ')'"></span></span>
+          <div class="flex gap-2">
+            <input type="password" class="input" x-model="apiKeyInput" placeholder="Paste API key to save / replace" autocomplete="off" />
+            <button class="btn btn-primary" :disabled="!apiKeyInput" @click="saveSettings({api_key: apiKeyInput}); apiKeyInput=''">Save</button>
+          </div>
+          <div class="mt-4 flex items-center gap-3 text-sm">
+            <button class="btn btn-ghost" @click="checkConnection(true)">Test connection</button>
+            <span :class="conn.connected?'text-emerald-700':'text-rose-700'" x-text="conn.message || ('Status: ' + (conn.status||'—'))"></span>
+          </div>
+        </div>
+
+        <div class="card p-6">
+          <h2 class="font-bold text-lg mb-1">Sending speed & safety</h2>
+          <p class="text-sm text-slate-500 mb-5">Slower, human-like sending greatly lowers the chance of WhatsApp restricting your number.</p>
+          <div class="grid sm:grid-cols-2 gap-4">
+            <div><span class="label">Min delay between messages (sec)</span><input type="number" min="1" class="input" x-model.number="sForm.min_delay_sec" /></div>
+            <div><span class="label">Max delay between messages (sec)</span><input type="number" min="1" class="input" x-model.number="sForm.max_delay_sec" /></div>
+            <div><span class="label">Long break after every N messages</span><input type="number" min="0" class="input" x-model.number="sForm.batch_size" /></div>
+            <div><span class="label">Long break length (sec)</span><input type="number" min="0" class="input" x-model.number="sForm.batch_pause_sec" /></div>
+            <div><span class="label">Daily limit per campaign (0 = off)</span><input type="number" min="0" class="input" x-model.number="sForm.daily_limit" /></div>
+            <div><span class="label">Retries on network errors</span><input type="number" min="0" max="10" class="input" x-model.number="sForm.max_retries" /></div>
+          </div>
+          <div class="mt-5 flex gap-2">
+            <button class="btn btn-primary" @click="saveSettings(sForm)">Save settings</button>
+            <button class="btn btn-ghost" @click="Object.assign(sForm,{min_delay_sec:8,max_delay_sec:15,batch_size:40,batch_pause_sec:180,daily_limit:500,max_retries:3})">Reset to safe defaults</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card p-6 h-fit text-sm space-y-3">
+        <h3 class="font-bold">🛡️ Keep your number safe</h3>
+        <ul class="list-disc pl-5 space-y-2 text-slate-600">
+          <li>Message only people who know you / opted in. Reports & blocks are the #1 ban reason.</li>
+          <li>New number? Start with 50–100/day for the first week, then increase slowly.</li>
+          <li>Use <b>{name}</b> and personal text – identical mass texts are flagged faster.</li>
+          <li>Trial plan of WasenderAPI allows only 1 msg/min & 50/day. Paid plans are much higher.</li>
+          <li>"Account Protection" in WasenderAPI limits to 1 msg / 5 sec – keep min delay ≥ 5s if enabled.</li>
+          <li>Always add an opt-out line, e.g. "Reply STOP to unsubscribe" – and add those numbers to the <b>Blocklist</b>.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
